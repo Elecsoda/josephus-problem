@@ -1,0 +1,400 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Pause, RotateCcw, FastForward, SkipForward, Users, Settings, Info, Trophy } from 'lucide-react';
+
+const JosephusProblem = () => {
+  // --- 状态管理 ---
+  const [totalPeople, setTotalPeople] = useState(41);
+  const [step] = useState(2); // 固定步长为 2
+  const [people, setPeople] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const [speed, setSpeed] = useState(500); // 毫秒
+  
+  // 核心算法状态
+  const [currentIndex, setCurrentIndex] = useState(-1); // 当前指针位置
+  const [currentCount, setCurrentCount] = useState(0); // 当前报数 (1 到 k)
+  const [eliminatedHistory, setEliminatedHistory] = useState([]);
+  const [survivor, setSurvivor] = useState(null);
+  const [gameStatus, setGameStatus] = useState('idle'); // idle, counting, eliminating, finished
+
+  const timerRef = useRef(null);
+
+  // --- 初始化 ---
+  const initializeGame = useCallback(() => {
+    const newPeople = Array.from({ length: totalPeople }, (_, i) => ({
+      id: i + 1,
+      status: 'alive', // alive, dead, active
+    }));
+    setPeople(newPeople);
+    setCurrentIndex(-1); // 还没开始，指针在圈外
+    setCurrentCount(0);
+    setEliminatedHistory([]);
+    setSurvivor(null);
+    setGameStatus('idle');
+    setIsRunning(false);
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, [totalPeople]);
+
+  // 首次加载初始化
+  useEffect(() => {
+    initializeGame();
+  }, [initializeGame]);
+
+  // --- 核心逻辑步骤 ---
+  const performStep = useCallback(() => {
+    setPeople(prevPeople => {
+      // 检查是否只剩一人
+      const aliveCount = prevPeople.filter(p => p.status === 'alive' || p.status === 'active').length;
+      if (aliveCount <= 1) {
+        setIsRunning(false);
+        setGameStatus('finished');
+        const winner = prevPeople.find(p => p.status === 'alive' || p.status === 'active');
+        if (winner) setSurvivor(winner.id);
+        return prevPeople;
+      }
+
+      let nextIndex = currentIndex;
+      let foundNext = false;
+      
+      // 寻找下一个活着的人
+      let loopSafe = 0;
+      while (!foundNext && loopSafe < prevPeople.length * 2) {
+        nextIndex = (nextIndex + 1) % prevPeople.length;
+        if (prevPeople[nextIndex].status !== 'dead') {
+          foundNext = true;
+        }
+        loopSafe++;
+      }
+
+      const nextCount = currentCount + 1;
+      const isEliminationTurn = nextCount === step;
+
+      // 更新当前报数状态
+      setCurrentCount(isEliminationTurn ? 0 : nextCount);
+      setCurrentIndex(nextIndex);
+
+      // 创建新的数组副本
+      const newPeople = [...prevPeople];
+      
+      // 清除之前的 active 状态 (视觉清理)
+      newPeople.forEach((p, idx) => {
+        if (p.status === 'active') p.status = 'alive';
+      });
+
+      if (isEliminationTurn) {
+        // 这一轮的人被淘汰
+        newPeople[nextIndex] = { ...newPeople[nextIndex], status: 'dead' };
+        setEliminatedHistory(prev => [...prev, newPeople[nextIndex].id]);
+        setGameStatus('eliminating'); // 视觉效果状态
+      } else {
+        // 这一轮的人报数安全，变为 active (高亮)
+        newPeople[nextIndex] = { ...newPeople[nextIndex], status: 'active' };
+        setGameStatus('counting');
+      }
+
+      return newPeople;
+    });
+  }, [currentIndex, currentCount, step]);
+
+  // --- 定时器控制 ---
+  useEffect(() => {
+    if (isRunning && gameStatus !== 'finished') {
+      timerRef.current = setTimeout(() => {
+        performStep();
+      }, speed);
+    }
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [isRunning, performStep, speed, gameStatus]);
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-800 overflow-x-hidden">
+      
+      {/* 头部标题 */}
+      <header className="bg-white border-b border-gray-200 p-3 md:p-4 shadow-sm z-10 sticky top-0">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="text-indigo-600 w-5 h-5 md:w-6 md:h-6" />
+            <h1 className="text-lg md:text-xl font-bold text-gray-800">约瑟夫问题（Josephus Problem）</h1>
+          </div>
+          <div className="text-xs md:text-sm text-gray-500 hidden sm:block">
+            {totalPeople}人围坐，报数到2淘汰
+          </div>
+        </div>
+      </header>
+
+      {/* 主布局：使用 order 类来实现手机上可视化区域在上方，控制面板在下方 */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-2 md:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
+        
+        {/* 右侧：可视化区域 (手机 order-1: 优先显示) */}
+        <div className="order-1 lg:order-2 lg:col-span-9 flex flex-col gap-4">
+          
+          {/* 主展示区 */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 relative min-h-[350px] md:min-h-[500px] flex items-center justify-center overflow-hidden">
+            
+            {/* 状态提示栏 (上方) */}
+            <div className="absolute top-0 left-0 right-0 p-3 flex justify-between items-start z-10 pointer-events-none">
+                <div className="bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg shadow border border-indigo-100">
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider">当前报数</div>
+                  <div className="text-xl font-mono font-bold text-indigo-600">
+                    {currentCount} <span className="text-gray-300 text-sm">/ {step}</span>
+                  </div>
+                </div>
+                
+                {/* 胜利文字显示 (非弹窗) */}
+                {survivor && (
+                  <div className="animate-fadeIn bg-yellow-50 px-4 py-2 rounded-lg border border-yellow-200 shadow-sm flex items-center gap-2">
+                     <Trophy className="w-5 h-5 text-yellow-500" />
+                     <div>
+                        <span className="text-xs text-yellow-700 block">最终幸存者</span>
+                        <span className="text-xl font-black text-yellow-600">#{survivor}</span>
+                     </div>
+                  </div>
+                )}
+            </div>
+
+            {/* 圆环容器 */}
+            <div className="relative w-full max-w-[340px] md:max-w-[600px] aspect-square mt-6">
+              {people.map((person, index) => {
+                const isCrowded = totalPeople > 50;
+                const isVeryCrowded = totalPeople > 80;
+                
+                // 计算角度
+                const angle = (index / totalPeople) * 2 * Math.PI - Math.PI / 2;
+                
+                // 计算半径：人多时，圆圈半径稍微缩小(36%)，给外侧文字留出空间(44%-46%)
+                const circleRadius = isCrowded ? 36 : 40; 
+                const labelRadius = 45;
+
+                // 圆圈位置
+                const cx = 50 + circleRadius * Math.cos(angle);
+                const cy = 50 + circleRadius * Math.sin(angle);
+                
+                // 外侧标签位置
+                const lx = 50 + labelRadius * Math.cos(angle);
+                const ly = 50 + labelRadius * Math.sin(angle);
+
+                // 动态计算小球大小
+                let sizeClass = 'w-8 h-8 md:w-10 md:h-10 text-xs md:text-sm';
+                if (isVeryCrowded) {
+                   sizeClass = 'w-1.5 h-1.5 md:w-2 md:h-2 text-[0px]'; // 超多人时小点
+                } else if (isCrowded) {
+                   sizeClass = 'w-2.5 h-2.5 md:w-3 md:h-3 text-[0px]'; // 多人时中点
+                } else if (totalPeople > 30) {
+                   sizeClass = 'w-5 h-5 text-[9px]'; // 较多人时
+                }
+                
+                let statusClass = "bg-green-500 text-white border-green-600"; // 默认活着
+                if (person.status === 'dead') statusClass = "bg-gray-100 text-gray-300 border-gray-200 scale-50 opacity-40"; // 淘汰了
+                if (person.status === 'active') statusClass = "bg-blue-500 text-white border-blue-600 scale-125 ring-2 md:ring-4 ring-blue-200 z-10 shadow-lg"; // 正在报数
+                if (survivor === person.id) statusClass = "bg-yellow-400 text-yellow-900 border-yellow-500 scale-125 ring-2 md:ring-4 ring-yellow-200 z-10 animate-bounce"; // 赢家
+
+                return (
+                  <React.Fragment key={person.id}>
+                    {/* 外侧数字标签 (仅在人多拥挤时显示) */}
+                    {isCrowded && (
+                      <div
+                        className={`absolute font-sans leading-none transition-all duration-300 transform -translate-x-1/2 -translate-y-1/2
+                          ${isVeryCrowded ? 'text-[7px] md:text-[8px]' : 'text-[9px] md:text-[10px]'} 
+                          ${person.status === 'dead' ? 'text-gray-200 opacity-50' : 'text-gray-500 font-medium'}
+                          ${person.status === 'active' || survivor === person.id ? 'font-bold text-indigo-600 scale-125 z-20' : ''}
+                        `}
+                        style={{ left: `${lx}%`, top: `${ly}%` }}
+                      >
+                        {person.id}
+                      </div>
+                    )}
+
+                    {/* 人员圆点 */}
+                    <div
+                      className={`absolute rounded-full flex items-center justify-center font-bold border transition-all duration-300 shadow-sm ${sizeClass} ${statusClass}`}
+                      style={{
+                        left: `${cx}%`,
+                        top: `${cy}%`,
+                        transform: 'translate(-50%, -50%)'
+                      }}
+                    >
+                      {/* 只有在不拥挤，或者当前激活/获胜时才在圆圈内显示数字 */}
+                      {(!isCrowded || person.status === 'active' || survivor === person.id) && person.id}
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+              
+              {/* 中心说明 */}
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center text-gray-300 pointer-events-none select-none">
+                 {gameStatus === 'idle' && <span className="text-xs md:text-sm bg-gray-50 px-2 py-1 rounded opacity-60">准备开始</span>}
+                 {gameStatus === 'eliminating' && <span className="text-3xl md:text-4xl font-bold text-red-100">OUT</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 左侧：控制面板与数据 (手机 order-2: 下方显示) */}
+        <div className="order-2 lg:order-1 lg:col-span-3 space-y-4 md:space-y-6">
+          
+          {/* 控制面板 */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 mb-3 text-gray-700 font-semibold border-b pb-2">
+              <Settings className="w-5 h-5" /> 控制台
+            </div>
+            
+            <div className="space-y-4">
+              {/* 仅保留总人数设置 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">总人数 (N)</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="range"
+                    min="2"
+                    max="100"
+                    value={totalPeople}
+                    onChange={(e) => {
+                      setTotalPeople(parseInt(e.target.value) || 2);
+                      setIsRunning(false);
+                    }}
+                    // 只有在自动播放运行时才禁用，允许暂停或结束后调整
+                    disabled={isRunning}
+                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <input 
+                    type="number" 
+                    min="2" 
+                    max="100" 
+                    value={totalPeople} 
+                    onChange={(e) => {
+                      setTotalPeople(parseInt(e.target.value) || 2);
+                      setIsRunning(false);
+                    }}
+                    // 只有在自动播放运行时才禁用
+                    disabled={isRunning}
+                    className="w-16 px-2 py-1 text-center border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-gray-100"
+                  />
+                </div>
+              </div>
+
+               <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">动画速度 ({speed}ms)</label>
+                <input 
+                  type="range" 
+                  min="50" 
+                  max="1000" 
+                  step="50"
+                  value={speed} 
+                  onChange={(e) => setSpeed(parseInt(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  style={{ direction: 'rtl' }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                {!isRunning && gameStatus !== 'finished' ? (
+                  <button 
+                    onClick={() => setIsRunning(true)}
+                    className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-lg transition-colors col-span-2 active:scale-95 touch-manipulation"
+                  >
+                    <Play className="w-5 h-5" /> 自动开始
+                  </button>
+                ) : gameStatus !== 'finished' ? (
+                  <button 
+                    onClick={() => setIsRunning(false)}
+                    className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white py-3 px-4 rounded-lg transition-colors col-span-2 active:scale-95 touch-manipulation"
+                  >
+                    <Pause className="w-5 h-5" /> 暂停
+                  </button>
+                ) : (
+                   <button 
+                    onClick={initializeGame}
+                    className="flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 px-4 rounded-lg hover:bg-indigo-700 col-span-2 shadow-lg animate-pulse"
+                  >
+                    <RotateCcw className="w-5 h-5" /> 再玩一次
+                  </button>
+                )}
+
+                <button 
+                  onClick={performStep}
+                  disabled={isRunning || gameStatus === 'finished'}
+                  className="flex items-center justify-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-2 rounded-lg transition-colors disabled:opacity-50 touch-manipulation"
+                >
+                  <SkipForward className="w-5 h-5" /> 手动下一步
+                </button>
+
+                <button 
+                  onClick={initializeGame}
+                  disabled={gameStatus === 'finished'} // 结束后主要用上面的大按钮重置
+                  className="flex items-center justify-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-2 rounded-lg transition-colors disabled:opacity-50 touch-manipulation"
+                >
+                  <RotateCcw className="w-5 h-5" /> 重置
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 状态面板：横向表格 */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex-1 flex flex-col min-h-[150px]">
+            <h3 className="text-gray-700 font-semibold border-b pb-2 mb-2 flex justify-between items-center">
+              <span>淘汰记录</span>
+              <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">
+                剩余: {people.filter(p => p.status !== 'dead').length}
+              </span>
+            </h3>
+            
+            <div className="flex-1 overflow-x-auto custom-scrollbar pb-1">
+               {eliminatedHistory.length === 0 ? (
+                 <p className="text-gray-400 italic text-center py-4 text-sm">暂无淘汰</p>
+               ) : (
+                <table className="w-full text-center text-xs md:text-sm border-collapse min-w-max">
+                  <tbody>
+                    {/* 第一行：次数 */}
+                    <tr>
+                      <td className="p-2 border-b border-r bg-gray-50 font-semibold text-gray-600 sticky left-0 z-10 w-20">次数</td>
+                      {eliminatedHistory.map((_, idx) => (
+                         <td key={`idx-${idx}`} className="p-2 border-b min-w-[3rem] text-gray-500">{idx + 1}</td>
+                      ))}
+                    </tr>
+                    {/* 第二行：号码 */}
+                    <tr>
+                      <td className="p-2 border-r bg-white font-semibold text-gray-600 sticky left-0 z-10 w-20 shadow-sm">淘汰号码</td>
+                      {eliminatedHistory.map((id) => (
+                         <td key={`id-${id}`} className="p-2 min-w-[3rem] font-bold text-red-600 animate-fadeIn">#{id}</td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+               )}
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      {/* 底部版权 */}
+      <footer className="py-6 text-center text-gray-400 text-sm">
+        @孙维刚教育研究院
+      </footer>
+      
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+          height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #d1d5db; 
+          border-radius: 4px;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(5px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out forwards;
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default JosephusProblem;
